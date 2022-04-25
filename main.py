@@ -18,11 +18,16 @@ if __name__ == '__main__':
     with sqlite3.connect('data.sqlite') as conn:
         roi.save_table(conn, 'ITEMS', items)
         roi.save_table(conn, 'RECIPES', recipes)
-        rows = conn.execute('select distinct ItemID from RECIPES LIMIT 100')
+        roi.save_table(conn, 'WORLDS', roi.load_worlds(os.path.join('.', 'ffxiv-datamining')))
+        roi.create_market_history_table(conn)
+        rows = conn.execute('select distinct ItemID from RECIPES')
         recipes = []
+        print("Computing recipes: ", end='')
         for q in __chunks(list(map(lambda x: x[0], rows)), 20):
             recipes = [*recipes, *(roi.find_recipe(connection=conn, ids_to_query=q))]
+            print('.', end='', flush=True)
+        req = set()
         for r in recipes:
-            print("-------------")
-            print(repr(r))
-
+            req.update(list(r.required().keys()))
+        print("\nDownloading History: ", end='', flush=True)
+        roi.download_market_history(conn, 'goblin', req, progress=lambda: print('.', end='', flush=True))

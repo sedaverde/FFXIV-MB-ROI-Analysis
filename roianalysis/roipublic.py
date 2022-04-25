@@ -6,6 +6,14 @@ from pandas import DataFrame, Series
 import sqlite3 as sq
 
 
+def load_worlds(dataming_basepath):
+    worlds = pd.read_csv(f'{dataming_basepath}/csv/World.csv', header=1)
+    worlds = worlds.drop(labels=0, axis=0)
+    worlds = worlds.rename(columns={'#': 'WorldID'})
+    worlds = worlds.astype({'WorldID': int, 'IsPublic': bool,'Region':int,'UserType':int,'DataCenter':int})
+    return worlds
+
+
 def load_recipes(dataming_basepath):
     recipe = pd.read_csv(f'{dataming_basepath}/csv/Recipe.csv', header=1)
     recipe = recipe.drop(labels=0, axis=0)
