@@ -1,13 +1,69 @@
 import sys
 import textwrap
+import warnings
+
+
+class AcquireAction:
+
+    def __init__(self, count: int = 1):
+        self._profit = 0
+        self._count = count
+
+    def value(self) -> float:
+        pass
+
+    def actions(self) -> str:
+        pass
+
+    def cost(self) -> float:
+        return self._count * self.value()
+
+    def set_profit(self, p: float) -> None:
+        self._profit = p
+
+    def get_profit(self) -> float:
+        return self._profit
+
+
+class BuyAction(AcquireAction):
+
+    def __init__(self, value: float, count: int, action: str):
+        super().__init__(count)
+        self._value = value
+        self._action = action
+
+    def value(self) -> float:
+        return self._value
+
+    def actions(self) -> str:
+        return self._action.format(cost=self.cost())
+
+
+class CraftAction(AcquireAction):
+    def __init__(self, item_id, count: int, actions: list[AcquireAction]):
+        super().__init__(count)
+        self._item_id = item_id
+        self._actions = actions
+
+    def value(self) -> float:
+        return self.cost()/self._count
+
+    def cost(self) -> float:
+        return sum([i.cost() for i in self._actions])
+
+    def actions(self) -> str:
+        a = ','.join([f"({i.actions()})" for i in self._actions])
+        return f"C[{self._item_id}]:{a}"
 
 
 class MarketItem:
 
-    def __init__(self, id, world, data):
+    def __init__(self, id, world, timestamp, value, action):
         self.id = id
         self.world = world
-        self.data = data
+        self.timestamp = timestamp
+        self.value = value
+        self.action = action
         pass
 
 
@@ -18,7 +74,8 @@ class Recipe:
         self.count = int(count)
         self.ingredients = ingredients
         self.market = None
-        self.lookup = {}
+        self.ivalue = None
+        self.iaquire = None
 
     def __repr__(self, indent=0):
         res = """
@@ -26,7 +83,7 @@ class Recipe:
                 Produces: {count}""".format(id=self.id, count=self.count)
         res = textwrap.dedent(res).lstrip()
         if self.market is not None:
-            res += "\nAverage Price: {price}".format(price=self.market.data['averagePrice'])
+            res += "\nAverage MB Price: {price}".format(price=self.market.value)
         res += '\nIngredients'
         res += "".join(map(lambda x: "\n" + x.__repr__(indent + 2), self.ingredients))
         return textwrap.indent(res, ' ' * indent)
@@ -63,16 +120,30 @@ class Recipe:
         acc[self.id] = acc[self.id] + self.count
         return acc
 
-    def _update_prices_(self, lookup):
+    def update_prices(self, lookup):
         self.market = None
-        if self.id in lookup:
-            entry = lookup[self.id]
-            self.market = MarketItem(world=entry['worldID'], id=self.id, data=entry)
+        entry = lookup(self.id)
+        if entry is not None:
+            self.market = entry
         else:
             print("Unable to find market value for {id}".format(id=self.id))
+
         for i in self.ingredients:
-            i._update_prices_(lookup)
+            i.update_prices(lookup)
         pass
+
+    def acquire_action(self, perunit=False):
+        # How much is it to buy self.count item from the MB
+        buy_action = BuyAction(self.market.value, self.count, f"{self.market.action}[{self.id}@{{cost}}]")
+        cactions = []
+        for i in self.ingredients:
+            cactions.append(i.acquire_action())
+        craft_action = CraftAction(self.id, self.count, cactions)
+        # The craft action will return cost of self.count items from recipe
+        # To get per-unit value we need to divide by self.count.
+        result = buy_action if buy_action.cost() < craft_action.cost() else craft_action
+        result.set_profit(buy_action.cost() - craft_action.cost())
+        return result
 
 
 class Ingredient:
@@ -113,16 +184,80 @@ class Ingredient:
             self.recipe.craft(acc, depth - 1)
         acc[self.id] -= self.count
 
-    def _update_prices_(self, lookup):
+    def update_prices(self, lookup):
         self.market = None
-        if self.id in lookup:
-            entry = lookup[self.id]
-            self.market = MarketItem(world=entry['worldID'], id=self.id, data=entry)
+        entry = lookup(self.id)
+        if entry is not None:
+            self.market = entry
         else:
             print("Unable to find market value for {id}".format(id=self.id))
         if self.hasRecipe():
-            self.recipe._update_prices_(lookup)
+            self.recipe.update_prices(lookup)
         pass
+
+    def acquire_action(self):
+        # Calculate cost of buying vs making
+        costToMake = sys.maxsize
+        # To craft we would need self.count items from the MB
+        buy_action = BuyAction(self.market.value, self.count, f"{self.market.action}[{self.id}@{{cost}}]")
+
+        if not self.hasRecipe():
+            return buy_action
+        # We want to know how much it would cost PERUNIT to craft the necessary item
+        craft_action = self.recipe.acquire_action()
+
+        result = buy_action if buy_action.cost() < craft_action.value() * self.count else craft_action
+        result.set_profit(abs(buy_action.value() - (craft_action.value() * self.count)))
+        return result
+
+
+def lookup_market_prices(conn, item_id):
+    # Lookup the market price. Priorities are current market listing,
+    # historical listings and finally, vendor (with a big fat warning?)
+    rows = conn.execute("""
+    /*
+    This query is not great. Need to fix it to find the lowest Average Price from ALL Worlds
+    this is just getting the latest uploaded value... Probably something like MIN(averagePrice) of the
+    MAX(lastUploadTime) accross all worlds.
+    */
+    select ml.itemID, ml.lastUploadTime,ml.worldID,ml.averagePrice FROM  MARKET_LISTINGS ml
+         INNER JOIN (select worldID,itemID,MAX(lastUploadTime) as lastUploadTime from MARKET_LISTINGS 
+         where MARKET_LISTINGS.itemID in (:itemID) GROUP BY itemID) grouped on grouped.itemID == ml.itemID AND
+         grouped.worldID = ml.worldID and grouped.lastUploadTime = ml.lastUploadTime
+    """, {'itemID': item_id}).fetchall()
+    if len(rows) > 1:
+        # This can happen, maybe if two worlds get the same upload at the same time?
+        warnings.warn(f"Found more than 1 itemID {item_id} that has the latest update.")
+        pass
+
+    if len(rows) >= 1:
+        r = rows[0]
+        if r[0] is not None:
+            return MarketItem(item_id, r[2], r[1], r[3], "CB")
+
+    # So not in the current listing.... maybe historical
+
+    rows = conn.execute("""
+    with latest_prices as ( SELECT * from (select worldID,itemID,MAX(lastUploadTime) as lastUploadTime from ITEM_HISTORY 
+    where ITEM_HISTORY.itemID = :itemID) ih JOIN ITEM_HISTORY_ENTRIES ihe ON ih.itemID = ihe.itemID and 
+    ih.worldID = ihe.worldID and ih.lastUploadTime = ihe.lastUploadTime )
+    SELECT worldID,lastUploadTime,avg(pricePerUnit) from latest_prices WHERE (ABS(latest_prices.pricePerUnit-(SELECT 
+    avg(pricePerUnit) from latest_prices))<3*(SELECT stdev(pricePerUnit) from latest_prices));
+    """, {'itemID': item_id}).fetchall()
+    if len(rows) > 1:
+        warnings.warn(f"Found more than 1 itemid {item_id} that has the latest average historical price")
+    if len(rows) >= 1:
+        r = rows[0]
+        if r[0] is not None:
+            return MarketItem(item_id, r[1], r[2], r[3], "HB")
+
+    # Finally might only be available from vendor or old school farming.
+    rows = conn.execute("""
+    select PriceMid from ITEMS where ItemID = :itemID
+    """, {'itemID': item_id}).fetchall()
+    r = rows[0]
+    return MarketItem(item_id, 0, 0, r[0], "V")
+    pass
 
 
 def find_recipe(connection, ids_to_query):
@@ -159,5 +294,6 @@ def find_recipe(connection, ids_to_query):
                 accumulator.append(
                     Ingredient(ingredient, num_ingredient, subrecipe[0] if len(subrecipe) == 1 else None))
         # Next we append the result to our array
-        result.append(Recipe(row[4], row[5], accumulator))
+        recipe = Recipe(row[4], row[5], accumulator)
+        result.append(recipe)
     return result
