@@ -40,20 +40,21 @@ class BuyAction(AcquireAction):
 
 
 class CraftAction(AcquireAction):
-    def __init__(self, item_id, count: int, actions: list[AcquireAction]):
+    def __init__(self, name, item_id, count: int, actions: list[AcquireAction]):
         super().__init__(count)
         self._item_id = item_id
         self._actions = actions
+        self._name = name
 
     def value(self) -> float:
-        return self.cost()/self._count
+        return self.cost() / self._count
 
     def cost(self) -> float:
         return sum([i.cost() for i in self._actions])
 
     def actions(self) -> str:
         a = ','.join([f"({i.actions()})" for i in self._actions])
-        return f"C[{self._item_id}]:{a}"
+        return f"C[{self._item_id}!\"{self._name}\"]:{a}"
 
 
 class MarketItem:
@@ -69,8 +70,9 @@ class MarketItem:
 
 class Recipe:
 
-    def __init__(self, id, count, ingredients):
+    def __init__(self, name, id, count, ingredients):
         self.id = id
+        self.name = name
         self.count = int(count)
         self.ingredients = ingredients
         self.market = None
@@ -134,11 +136,12 @@ class Recipe:
 
     def acquire_action(self, perunit=False):
         # How much is it to buy self.count item from the MB
-        buy_action = BuyAction(self.market.value, self.count, f"{self.market.action}[{self.id}@{{cost}}]")
+        buy_action = BuyAction(self.market.value, self.count,
+                               f"{self.market.action}[{self.id}!\"{self.name}\"@{{cost}}]")
         cactions = []
         for i in self.ingredients:
             cactions.append(i.acquire_action())
-        craft_action = CraftAction(self.id, self.count, cactions)
+        craft_action = CraftAction(self.name, self.id, self.count, cactions)
         # The craft action will return cost of self.count items from recipe
         # To get per-unit value we need to divide by self.count.
         result = buy_action if buy_action.cost() < craft_action.cost() else craft_action
@@ -147,8 +150,9 @@ class Recipe:
 
 
 class Ingredient:
-    def __init__(self, id, count, recipe=None):
+    def __init__(self, name, id, count, recipe=None):
         self.id = id
+        self.name = name
         self.count = int(count)
         self.recipe = recipe
         self.market = None
@@ -199,7 +203,8 @@ class Ingredient:
         # Calculate cost of buying vs making
         costToMake = sys.maxsize
         # To craft we would need self.count items from the MB
-        buy_action = BuyAction(self.market.value, self.count, f"{self.market.action}[{self.id}@{{cost}}]")
+        buy_action = BuyAction(self.market.value, self.count,
+                               f"{self.market.action}[{self.id}\"{self.name}\"@{{cost}}]")
 
         if not self.hasRecipe():
             return buy_action
@@ -260,6 +265,20 @@ def lookup_market_prices(conn, item_id):
     pass
 
 
+_name_cache = {}
+
+
+def _resolve_name(connection, id):
+    if id in _name_cache:
+        return _name_cache[id]
+    row = connection.execute(f"""
+    SELECT Name FROM ITEMS WHERE ItemID = {id}
+    """)
+    result = next(row)[0]
+    _name_cache[id] = result
+    return result
+
+
 def find_recipe(connection, ids_to_query):
     in_ids_to_query = ",".join([str(x) if type(x) == int else x for x in ids_to_query])
     select_stmt = """SELECT * FROM (
@@ -292,8 +311,9 @@ def find_recipe(connection, ids_to_query):
                 # For a given ingredient we see if there is a recipe attached to creating this
                 # ingredient.
                 accumulator.append(
-                    Ingredient(ingredient, num_ingredient, subrecipe[0] if len(subrecipe) == 1 else None))
+                    Ingredient(_resolve_name(connection, ingredient), ingredient, num_ingredient,
+                               subrecipe[0] if len(subrecipe) == 1 else None))
         # Next we append the result to our array
-        recipe = Recipe(row[4], row[5], accumulator)
+        recipe = Recipe(_resolve_name(connection, row[4]), row[4], row[5], accumulator)
         result.append(recipe)
     return result

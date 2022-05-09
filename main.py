@@ -26,7 +26,7 @@ if __name__ == '__main__':
         roi.save_table(conn, 'WORLDS', roi.load_worlds(os.path.join('.', 'ffxiv-datamining')))
         roi.create_market_history_table(conn)
         roi.create_market_listing_table(conn)
-        rows = conn.execute('select distinct ItemID from RECIPES WHERE ItemID = 33194 LIMIT 500')
+        rows = conn.execute('select distinct ItemID from RECIPES WHERE ItemID >36173')
         #rows = conn.execute('SELECT r.ItemID FROM RECIPES r JOIN MARKET_LISTINGS ml on ml.itemID = r.ItemID WHERE ml.regularSaleVelocity>0.6  AND length(stackSizeHistogramNQ) > 30 GROUP BY r.ItemID')
         recipes = []
         future_recipes = []
@@ -55,4 +55,4 @@ if __name__ == '__main__':
             profit=aaction.get_profit()
             profit_percentage=profit/aaction.cost()*100
             if not r.market.action.startswith('V'):
-                print(f"Cost to make {r.id}: {aaction.cost()}(MB:{r.market.value}) with: {aaction.actions()} for a profit of: {aaction.get_profit()} or {aaction.get_profit()/aaction.cost()*100}%")
+                print(f"Cost to acquire \"{r.name}\" {r.count} * {r.id}: {aaction.cost()}(MB:{r.market.value}) with: {aaction.actions()} for a profit of: {aaction.get_profit()} or {aaction.get_profit()/aaction.cost()*100}%")

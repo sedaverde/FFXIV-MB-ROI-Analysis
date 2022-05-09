@@ -112,6 +112,9 @@ def create_market_listing_table(conn):
 
 def __insert_into_market_listing__(conn, item_response):
     for i in item_response:
+        i.update({'worldID': '8',
+                  'worldName': 'Goblin'
+                  })
         conn.execute("""
             INSERT INTO MARKET_LISTINGS SELECT :itemID,:worldID,:lastUploadTime,:currentAveragePrice,
             :currentAveragePriceNQ,  :currentAveragePriceHQ,  :regularSaleVelocity,  :nqSaleVelocity,
