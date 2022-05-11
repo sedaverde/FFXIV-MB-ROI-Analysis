@@ -26,7 +26,7 @@ if __name__ == '__main__':
         roi.save_table(conn, 'WORLDS', roi.load_worlds(os.path.join('.', 'ffxiv-datamining')))
         roi.create_market_history_table(conn)
         roi.create_market_listing_table(conn)
-        rows = conn.execute('select distinct ItemID from RECIPES WHERE ItemID = 32226')
+        rows = conn.execute('select distinct ItemID from RECIPES WHERE ItemID>0')
         #rows = conn.execute('SELECT r.ItemID FROM RECIPES r JOIN MARKET_LISTINGS ml on ml.itemID = r.ItemID WHERE ml.regularSaleVelocity>0.6  AND length(stackSizeHistogramNQ) > 30 GROUP BY r.ItemID')
         recipes = []
         future_recipes = []
@@ -40,6 +40,7 @@ if __name__ == '__main__':
         print(f"\nFound a total of: {len(recipes)} recipes")
         for r in recipes:
             req.update(list(r.required().keys()))
+            req.update([r.id])
         print(f"Found {len(req)} ingredients")
         print("Downloading Current Market: ", end='', flush=True)
         current_misses, current_results = roi.download_market(conn, 'goblin', req)

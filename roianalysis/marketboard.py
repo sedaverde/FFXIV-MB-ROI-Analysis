@@ -215,7 +215,7 @@ def __get_market_listing(conn, world, items):
     rows = conn.execute(f"""    
     select ml.itemID,
         ml.worldID,
-        ml.lastUploadTime,
+        max(ml.lastUploadTime),
         ml.currentAveragePrice,
         ml.currentAveragePriceNQ,
         ml.currentAveragePriceHQ,
@@ -237,7 +237,7 @@ def __get_market_listing(conn, world, items):
         ml.worldName
     from MARKET_LISTINGS ml
          INNER JOIN (select itemID,MAX(lastUploadTime) from MARKET_LISTINGS where MARKET_LISTINGS.itemID in 
-         ({','.join([str(i) for i in items])}) GROUP BY itemID) grouped on grouped.itemID == ml.itemID;
+         ({','.join([str(i) for i in items])}) GROUP BY itemID) grouped on grouped.itemID == ml.itemID GROUP BY ml.itemID;
     """)
 
     return misses, {i[0]: {
@@ -309,7 +309,7 @@ def __get_market_history(conn, world, items):
     rows = conn.execute(f"""    
     select ih.itemID,
        ih.worldID,
-       ih.lastUploadTime,
+       max(ih.lastUploadTime),
        ih.stackSizeHistogram,
        ih.stackSizeHistogramNQ,
        ih.regularSaleVelocity,
@@ -318,7 +318,7 @@ def __get_market_history(conn, world, items):
        ih.worldName
     from ITEM_HISTORY ih
          INNER JOIN (select itemID,MAX(lastUploadTime) from ITEM_HISTORY where ITEM_HISTORY.itemID in 
-         ({','.join([str(i) for i in items])}) GROUP BY itemID) grouped on grouped.itemID == ih.itemID;
+         ({','.join([str(i) for i in items])}) GROUP BY itemID) grouped on grouped.itemID == ih.itemID group by ih.itemID;
     """)
 
     return misses, {i[0]: {
