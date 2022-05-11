@@ -228,7 +228,7 @@ def lookup_market_prices(conn, item_id):
     select ml.itemID, ml.lastUploadTime,ml.worldID,ml.averagePrice FROM  MARKET_LISTINGS ml
          INNER JOIN (select worldID,itemID,MAX(lastUploadTime) as lastUploadTime from MARKET_LISTINGS 
          where MARKET_LISTINGS.itemID in (:itemID) GROUP BY itemID) grouped on grouped.itemID == ml.itemID AND
-         grouped.worldID = ml.worldID and grouped.lastUploadTime = ml.lastUploadTime
+         grouped.worldID = ml.worldID and grouped.lastUploadTime = ml.lastUploadTime and ml.averagePrice>0
     """, {'itemID': item_id}).fetchall()
     if len(rows) > 1:
         # This can happen, maybe if two worlds get the same upload at the same time?
