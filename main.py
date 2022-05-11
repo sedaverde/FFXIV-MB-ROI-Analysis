@@ -4,7 +4,7 @@ import sqlite3
 from packaging import version
 
 import roianalysis as roi
-
+import csv
 
 def __chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
@@ -26,7 +26,7 @@ if __name__ == '__main__':
         roi.save_table(conn, 'WORLDS', roi.load_worlds(os.path.join('.', 'ffxiv-datamining')))
         roi.create_market_history_table(conn)
         roi.create_market_listing_table(conn)
-        rows = conn.execute('select distinct ItemID from RECIPES WHERE ItemID >36173')
+        rows = conn.execute('select distinct ItemID from RECIPES WHERE ItemID = 32226')
         #rows = conn.execute('SELECT r.ItemID FROM RECIPES r JOIN MARKET_LISTINGS ml on ml.itemID = r.ItemID WHERE ml.regularSaleVelocity>0.6  AND length(stackSizeHistogramNQ) > 30 GROUP BY r.ItemID')
         recipes = []
         future_recipes = []
@@ -49,10 +49,15 @@ if __name__ == '__main__':
         historical_misses, historical_results = roi.download_market_history(conn, 'goblin', req)
         print(f"\nHad Historical {len(historical_misses)} misses")
         print(f"Had Historical {len(historical_results.keys())} success")
-        for r in recipes:
-            r.update_prices(lambda item_id: roi.lookup_market_prices(conn, item_id))
-            aaction=r.acquire_action()
-            profit=aaction.get_profit()
-            profit_percentage=profit/aaction.cost()*100
-            if not r.market.action.startswith('V'):
-                print(f"Cost to acquire \"{r.name}\" {r.count} * {r.id}: {aaction.cost()}(MB:{r.market.value}) with: {aaction.actions()} for a profit of: {aaction.get_profit()} or {aaction.get_profit()/aaction.cost()*100}%")
+        with open('data.csv','w',newline='') as f:
+            csvwriter=csv.writer(f,dialect='excel', quotechar='"', quoting=csv.QUOTE_ALL)
+            for r in recipes:
+                r.update_prices(lambda item_id: roi.lookup_market_prices(conn, item_id))
+                aaction=r.acquire_action()
+                profit=aaction.get_profit()
+                profit_percentage=profit/aaction.cost()*100
+
+                if not r.market.action.startswith('V'):
+                    csvwriter.writerow([r.name,r.count,r.id,aaction.cost(),r.market.value,aaction.actions(),profit,profit_percentage])
+                    print(f"Cost to acquire \"{r.name}\" {r.count} * {r.id}: {aaction.cost()}(MB:{r.market.value}) with: {aaction.actions()} for a profit of: {aaction.get_profit()} or {aaction.get_profit()/aaction.cost()*100}%")
+
